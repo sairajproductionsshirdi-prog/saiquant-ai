@@ -1,0 +1,8 @@
+# One-click deploy config for render.com (free tier)
+services:
+  - type: web
+    name: saiquant-ai
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --timeout 300 --workers 1 --threads 4
