@@ -101,6 +101,20 @@ PAGE = r"""
           text-transform:uppercase;white-space:nowrap}
   .idx .p{font-family:'IBM Plex Mono',monospace;font-size:1rem;margin-top:3px}
   .idx .c{font-family:'IBM Plex Mono',monospace;font-size:.75rem}
+  .cmd{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+       padding:14px;display:flex;flex-direction:column;gap:10px}
+  .cmd-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .cmd input,.cmd select{background:var(--night);border:1px solid var(--line);
+       color:var(--ivory);border-radius:6px;padding:8px 10px;
+       font-family:'IBM Plex Mono',monospace;font-size:.82rem;flex:1;min-width:90px}
+  .chk{color:var(--muted);font-size:.8rem;display:flex;gap:5px;align-items:center;flex:0}
+  .btn{background:var(--marigold);color:#131A2E;border:none;border-radius:6px;
+       padding:9px 16px;font-weight:600;cursor:pointer;font-size:.82rem;flex:0}
+  .btn.buy{background:var(--gain);color:#fff}
+  .btn.sell{background:var(--loss);color:#fff}
+  .btn:disabled{opacity:.5}
+  .cmdout{font-family:'IBM Plex Mono',monospace;font-size:.78rem;
+          white-space:pre-wrap;color:var(--muted);max-height:300px;overflow:auto}
   footer{margin-top:38px;text-align:center;color:var(--muted);font-size:.8rem}
   footer b{color:var(--marigold);font-weight:500}
   @media (prefers-reduced-motion:no-preference){
@@ -156,6 +170,30 @@ PAGE = r"""
   </table>
   {% else %}<div class="empty">No closed trades yet. The scorecard begins with your first exit.</div>{% endif %}
 
+  <h2>⚡ Command center</h2>
+  <div class="cmd">
+    <input type="password" id="pw" placeholder="Action password">
+    <div class="cmd-row">
+      <select id="grp">
+        <option value="multibagger">Multibagger</option>
+        <option value="bluechip">Bluechip</option>
+        <option value="midsmall">Mid/Small</option>
+        <option value="all">All (slow)</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="intra"> Intraday</label>
+      <button class="btn" onclick="runAnalyse()">Run AI analysis</button>
+    </div>
+    <div class="cmd-row">
+      <input id="tsym" placeholder="SYMBOL" style="width:110px">
+      <input id="tprice" placeholder="Price" type="number" step="0.05" style="width:90px">
+      <input id="tqty" placeholder="Qty" type="number" style="width:70px">
+      <input id="tnote" placeholder="Note (e.g. AI strong, SL 2790)">
+      <button class="btn buy" onclick="trade('BUY')">Paper BUY</button>
+      <button class="btn sell" onclick="trade('SELL')">Paper SELL</button>
+    </div>
+    <div id="cmdout" class="cmdout"></div>
+  </div>
+
   <h2>Latest AI analysis {% if analysis_date %}<span class="meta">({{ analysis_date }})</span>{% endif %}</h2>
   {% if analysis %}<pre class="analysis">{{ analysis }}</pre>
   {% else %}<div class="empty">No analysis yet today. Run:
@@ -164,6 +202,37 @@ PAGE = r"""
   <footer>श्रद्धा · सबुरी — <b>Shraddha &amp; Saburi</b> · paper trading practice, not financial advice</footer>
 </div>
 <script>
+function out(msg, ok){ const o=document.getElementById('cmdout');
+  o.style.color = ok ? '#2FBF71' : '#E85D4A'; o.textContent = msg; }
+async function post(url, body){
+  body.password = document.getElementById('pw').value;
+  const r = await fetch(url,{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return [r.ok, await r.json()];
+}
+async function runAnalyse(){
+  const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
+  out('Running research + AI analysis… (1–3 minutes, please wait)', true);
+  try{
+    const [ok,d] = await post('/api/action/analyse',
+      {group:document.getElementById('grp').value,
+       intraday:document.getElementById('intra').checked});
+    if(ok){ out(d.report, true); setTimeout(()=>location.reload(), 60000); }
+    else out(d.error, false);
+  }catch(e){ out('Network/timeout error: '+e, false); }
+  btns.forEach(b=>b.disabled=false);
+}
+async function trade(side){
+  const body={side, symbol:document.getElementById('tsym').value,
+    price:document.getElementById('tprice').value,
+    qty:document.getElementById('tqty').value,
+    note:document.getElementById('tnote').value};
+  try{
+    const [ok,d] = await post('/api/action/trade', body);
+    if(ok){ out(d.ok, true); setTimeout(()=>location.reload(), 1200); }
+    else out(d.error, false);
+  }catch(e){ out('Network error: '+e, false); }
+}
 fetch('/api/overview').then(r=>r.json()).then(d=>{
   const s = document.getElementById('idxStrip');
   d.indices.forEach(i=>{
@@ -217,7 +286,8 @@ def home():
 
 
 def serve(port: int = 8000) -> None:
-    from . import charts  # noqa: F401 — registers /charts and API routes
+    from . import charts   # noqa: F401 — registers /charts and API routes
+    from . import actions  # noqa: F401 — registers web-command routes
     import socket
     try:
         ip = socket.gethostbyname(socket.gethostname())
