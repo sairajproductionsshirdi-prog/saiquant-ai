@@ -208,19 +208,40 @@ async function post(url, body){
   body.password = document.getElementById('pw').value;
   const r = await fetch(url,{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  return [r.ok, await r.json()];
+  let d; try{ d = await r.json(); }
+  catch(e){ d = {error:'Server busy or waking up — wait 30s and try again.'}; }
+  return [r.ok, d];
+}
+async function getJSON(url){
+  const r = await fetch(url);
+  try{ return [r.ok, await r.json()]; }
+  catch(e){ return [false, {error:'server busy'}]; }
 }
 async function runAnalyse(){
   const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
-  out('Running research + AI analysis… (1–3 minutes, please wait)', true);
+  out('Starting analysis job…', true);
   try{
     const [ok,d] = await post('/api/action/analyse',
       {group:document.getElementById('grp').value,
        intraday:document.getElementById('intra').checked});
-    if(ok){ out(d.report, true); setTimeout(()=>location.reload(), 60000); }
-    else out(d.error, false);
-  }catch(e){ out('Network/timeout error: '+e, false); }
-  btns.forEach(b=>b.disabled=false);
+    if(!ok){ out(d.error, false); btns.forEach(b=>b.disabled=false); return; }
+    const job = d.job_id; let ticks = 0;
+    const poll = setInterval(async ()=>{
+      ticks++;
+      const [rok, rd] = await getJSON('/api/action/result/'+job);
+      if(rd.state === 'running' || !rok){
+        out('⏳ ' + (rd.status || 'working…') + ' (' + (ticks*5) + 's)', true);
+        if(ticks > 120){ clearInterval(poll);
+          out('Taking unusually long — refresh the page in a minute; the result may appear under Latest AI analysis.', false);
+          btns.forEach(b=>b.disabled=false); }
+        return;
+      }
+      clearInterval(poll);
+      if(rd.state === 'done') out(rd.report, true);
+      else out(rd.error, false);
+      btns.forEach(b=>b.disabled=false);
+    }, 5000);
+  }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
 }
 async function trade(side){
   const body={side, symbol:document.getElementById('tsym').value,

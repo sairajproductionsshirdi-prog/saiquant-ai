@@ -14,6 +14,9 @@ Your PC remains the permanent record; the cloud is your remote control.
 from __future__ import annotations
 
 import os
+import threading
+import time
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -40,40 +43,66 @@ def _deny():
     return jsonify({"error": "Wrong password."}), 403
 
 
+# ── background analysis jobs (avoids web timeouts on slow free tiers) ────
+_JOBS: dict[str, dict] = {}
+
+
+def _run_analysis_job(job_id: str, group: str, intraday: bool) -> None:
+    from .universe import groups, all_symbols
+    from .snapshot import build_snapshot
+    from .ai_analyst import analyse, AIAnalystError
+    job = _JOBS[job_id]
+    try:
+        syms = all_symbols() if group == "all" else groups()[group]
+        job["status"] = f"researching {len(syms)} stocks…"
+        text = build_snapshot(syms, interval=("15m" if intraday else "1d"),
+                              label=group.upper())
+        job["status"] = "asking the AI analyst…"
+        report = analyse(text, intraday=intraday)
+        try:
+            SNAP_DIR.mkdir(exist_ok=True)
+            (SNAP_DIR / f"analysis_{date.today().isoformat()}.txt").write_text(
+                report, encoding="utf-8")
+        except OSError:
+            pass
+        job.update({"state": "done", "report": report})
+    except AIAnalystError as e:
+        job.update({"state": "error", "error": str(e)})
+    except Exception as e:
+        job.update({"state": "error", "error": f"data/research error: {e}"})
+
+
 @app.route("/api/action/analyse", methods=["POST"])
 def action_analyse():
+    """Start a background analysis job; returns a job id to poll."""
     if not _check_password():
         return _deny()
     body = request.json or {}
     group = body.get("group", "bluechip")
     intraday = bool(body.get("intraday"))
 
-    from .universe import groups, all_symbols
-    from .snapshot import build_snapshot
-    from .ai_analyst import analyse, AIAnalystError
+    # prune old jobs
+    now = time.time()
+    for k in [k for k, v in _JOBS.items() if now - v["t"] > 3600]:
+        _JOBS.pop(k, None)
 
-    try:
-        syms = all_symbols() if group == "all" else groups()[group]
-    except KeyError:
-        return jsonify({"error": f"unknown group {group}"}), 400
+    job_id = uuid.uuid4().hex[:12]
+    _JOBS[job_id] = {"state": "running", "status": "starting…", "t": now}
+    threading.Thread(target=_run_analysis_job,
+                     args=(job_id, group, intraday), daemon=True).start()
+    return jsonify({"job_id": job_id})
 
-    try:
-        text = build_snapshot(syms, interval=("15m" if intraday else "1d"),
-                              label=group.upper())
-        report = analyse(text, intraday=intraday)
-    except AIAnalystError as e:
-        return jsonify({"error": str(e)}), 502
-    except Exception as e:
-        return jsonify({"error": f"snapshot/data error: {e}"}), 502
 
-    try:
-        SNAP_DIR.mkdir(exist_ok=True)
-        (SNAP_DIR / f"analysis_{date.today().isoformat()}.txt").write_text(
-            report, encoding="utf-8")
-    except OSError:
-        pass  # ephemeral disk hiccup — still return the report
-
-    return jsonify({"report": report})
+@app.route("/api/action/result/<job_id>")
+def action_result(job_id: str):
+    job = _JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown or expired job"}), 404
+    if job["state"] == "running":
+        return jsonify({"state": "running", "status": job["status"]})
+    if job["state"] == "error":
+        return jsonify({"state": "error", "error": job["error"]})
+    return jsonify({"state": "done", "report": job["report"]})
 
 
 @app.route("/api/action/trade", methods=["POST"])
