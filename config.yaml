@@ -1,0 +1,72 @@
+# ─── SaiQuant AI v7 configuration ─────────────────────────────────────────
+mode: paper
+
+# ⚠️ REAL-MONEY SWITCH. Keep false until you have >= 15 closed paper trades
+# with a positive expectancy. Requires Kite Connect subscription (₹2000/mo),
+# KITE_API_KEY / KITE_API_SECRET in .env, and daily login.
+live_trading: false
+
+# Analysis style: positional (daily candles, swing) or intraday (15-min candles)
+intraday: false
+
+paper_capital: 50000
+
+# ─── Watchlist groups ─────────────────────────────────────────────────────
+groups:
+  bluechip:
+    - RELIANCE
+    - TCS
+    - HDFCBANK
+    - ICICIBANK
+    - INFY
+    - SBIN
+    - ITC
+    - LT
+    - BHARTIARTL
+    - HINDUNILVR
+    - BAJFINANCE
+    - MARUTI
+    - KOTAKBANK
+    - AXISBANK
+    - TITAN
+    - ASIANPAINT
+  midsmall:
+    - POLYCAB
+    - DIXON
+    - PERSISTENT
+    - COFORGE
+    - KPITTECH
+    - TATAELXSI
+    - ASTRAL
+    - APLAPOLLO
+    - CUMMINSIND
+    - PIIND
+    - SONACOMS
+    - EXIDEIND
+    - FEDERALBNK
+    - IDFCFIRSTB
+    - BSE
+    - CDSL
+    - ANGELONE
+    - KAYNES
+    - MAZDOCK
+    - DATAPATTNS
+  multibagger:
+    - CYIENTDLM
+    - SOUTHWEST
+    - AURIONPRO
+    - TARIL
+    - EMMVEE
+
+# Top 10 indices (shown on dashboard & charts; Yahoo tickers)
+indices:
+  "NIFTY 50": "^NSEI"
+  "SENSEX": "^BSESN"
+  "BANK NIFTY": "^NSEBANK"
+  "NIFTY IT": "^CNXIT"
+  "NIFTY AUTO": "^CNXAUTO"
+  "NIFTY PHARMA": "^CNXPHARMA"
+  "NIFTY FMCG": "^CNXFMCG"
+  "NIFTY METAL": "^CNXMETAL"
+  "NIFTY MIDCAP 50": "^NSEMDCP50"
+  "NIFTY SMALLCAP 100": "^CNXSC"
