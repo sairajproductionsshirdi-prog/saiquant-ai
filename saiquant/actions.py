@@ -181,6 +181,39 @@ def action_auto():
     return jsonify({"job_id": job_id})
 
 
+@app.route("/api/cron/tick")
+def cron_tick():
+    """One live-market pass, callable by an external scheduler.
+
+    Secured by CRON_TOKEN (set it in Render's Environment tab):
+        https://your-app.onrender.com/api/cron/tick?token=YOUR_TOKEN
+
+    Point a free scheduler (cron-job.org) at this every 5 minutes,
+    Mon-Fri 09:15-15:30 IST. Each call monitors open positions, then scans
+    for entries — the same work the local --live-paper loop does per tick.
+    The pings also keep the free Render service awake during market hours.
+
+    PAPER ONLY: no broker, no real orders.
+    """
+    expected = os.environ.get("CRON_TOKEN", "")
+    if not expected:
+        return jsonify({"error": "CRON_TOKEN not configured"}), 403
+    if request.args.get("token", "") != expected:
+        return jsonify({"error": "bad token"}), 403
+
+    from .livepaper import (in_market_hours, run_live)
+    if not in_market_hours():
+        return jsonify({"skipped": "outside market hours (09:15-15:30 IST)"})
+
+    events: list[str] = []
+    try:
+        summary = run_live(emit=events.append, max_iterations=1,
+                           sleeper=lambda s: None)
+    except Exception as e:
+        return jsonify({"error": f"tick failed: {e}"}), 500
+    return jsonify({"ok": True, "events": events, **summary})
+
+
 @app.route("/api/campaign")
 def api_campaign():
     from .autotrader import CampaignStore
