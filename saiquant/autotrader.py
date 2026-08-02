@@ -27,6 +27,7 @@ import pandas as pd
 import yfinance as yf
 
 from .indicators import ema, rsi
+from .ai_gate import review as ai_review
 from .riskengine import RiskConfig, RiskEngine, RiskState
 from .universe import groups, resolve
 
@@ -192,7 +193,8 @@ def evaluate(symbol: str, df: pd.DataFrame) -> dict | None:
 # ── the daily cycle ──────────────────────────────────────────────────────
 def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
               fetch=daily_history, index_fn=index_change_pct,
-              progress=None) -> dict:
+              progress=None, use_ai: bool = True,
+              ai_reviewer=ai_review, max_ai_reviews: int = 8) -> dict:
     store = CampaignStore()
     if not store.meta_get("start_date"):
         store.meta_set("start_date", date.today().isoformat())
@@ -204,6 +206,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
     risk = RiskEngine(RiskConfig(capital=capital), state)
 
     events: list[str] = []
+    ai_reviews_used = 0
 
     # 1. volatility halt
     chg = index_fn()
@@ -286,6 +289,37 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
                               f"threshold — {sig['reason']}")
                     continue
 
+                # ── AI six-lens review before any capital is committed ──
+                ai_note = ""
+                if use_ai:
+                    if ai_reviews_used >= max_ai_reviews:
+                        store.log(sym, "SKIP",
+                                  f"daily AI review budget ({max_ai_reviews}) "
+                                  f"exhausted — candidate deferred")
+                        continue
+                    if progress:
+                        progress(scanned, sum(len(v) for v in gmap.values()),
+                                 f"{sym} (AI review)")
+                    verdict = ai_reviewer(sig, gname)
+                    ai_reviews_used += 1
+                    if not verdict["approved"]:
+                        store.log(sym, "AI_REJECT",
+                                  f"sentiment {verdict['sentiment']} | "
+                                  f"{verdict['reason']}")
+                        events.append(f"🚫 AI vetoed {sym}: {verdict['reason'][:90]}")
+                        continue
+                    if verdict["confidence"] < min_confidence:
+                        store.log(sym, "AI_DOWNGRADE",
+                                  f"AI lowered confidence to "
+                                  f"{verdict['confidence']}/10 — below threshold | "
+                                  f"{verdict['reason']}")
+                        events.append(f"🔻 AI downgraded {sym} to "
+                                      f"{verdict['confidence']}/10")
+                        continue
+                    sig["confidence"] = verdict["confidence"]
+                    ai_note = (f" | AI: {verdict['sentiment']}, "
+                               f"{verdict['reason']} | risk: {verdict['risk_note']}")
+
                 qty, size_note = risk.position_size(sig["price"], sig["stop"])
                 ok, verdict = risk.approve_entry(open_pos, gname,
                                                  sig["price"], qty)
@@ -297,11 +331,11 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
                                    entry=sig["price"], stop=sig["stop"],
                                    target=sig["target"],
                                    confidence=sig["confidence"],
-                                   reason=f"{sig['reason']} | {size_note}")
+                                   reason=f"{sig['reason']} | {size_note}{ai_note}")
                 store.log(sym, "ENTRY",
                           f"{qty} @ ₹{sig['price']} | stop ₹{sig['stop']} | "
                           f"target ₹{sig['target']} | conf {sig['confidence']}/10 "
-                          f"| {sig['reason']}")
+                          f"| {sig['reason']}{ai_note}")
                 events.append(f"🟢 entered {sym}: {qty} @ ₹{sig['price']} "
                               f"(conf {sig['confidence']}/10)")
 
@@ -323,5 +357,6 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
             "realised": round(realised, 2), "unrealised": round(unreal, 2),
             "open": len(store.open_positions()),
             "closed": len(store.closed_trades()),
+            "ai_reviews": ai_reviews_used,
             "halted": risk.state.halted, "halt_reason": risk.state.halt_reason,
             "index_change": chg, "events": events}

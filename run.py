@@ -40,6 +40,8 @@ def main() -> None:
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--auto", action="store_true",
                     help="run one autonomous paper-trading cycle (PAPER ONLY)")
+    ap.add_argument("--no-ai", action="store_true",
+                    help="run the auto cycle on mechanical rules only")
     ap.add_argument("--campaign", action="store_true",
                     help="campaign status: equity, positions, metrics")
     ap.add_argument("--final-report", action="store_true",
@@ -181,12 +183,13 @@ def main() -> None:
             if i % 10 == 0 or i == n:
                 console.print(f"  scanning {i}/{n}…", highlight=False)
 
-        r = run_cycle(progress=prog)
+        r = run_cycle(progress=prog, use_ai=not args.no_ai)
         console.print(f"\n[bold]Day {r['day']}[/bold] | equity "
                       f"₹{r['equity']:,.0f} | realised ₹{r['realised']:,.0f} | "
                       f"unrealised ₹{r['unrealised']:,.0f}")
         console.print(f"Open: {r['open']} | Closed: {r['closed']} | "
-                      f"Nifty today: {r['index_change']}%")
+                      f"Nifty today: {r['index_change']}% | "
+                      f"AI reviews: {r.get('ai_reviews', 0)}")
         if r["halted"]:
             console.print(f"[red]⛔ TRADING HALTED: {r['halt_reason']}[/red]")
         for e in r["events"]:
