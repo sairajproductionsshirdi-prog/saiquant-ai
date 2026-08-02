@@ -94,6 +94,83 @@ def action_analyse():
     return jsonify({"job_id": job_id})
 
 
+def _run_backtest_job(job_id: str, group: str, years: int,
+                      stop: float, target: float) -> None:
+    from .universe import groups, all_symbols
+    from .backtest import run as bt_run
+    job = _JOBS[job_id]
+    try:
+        syms = all_symbols() if group == "all" else groups()[group]
+
+        def prog(i, n, sym):
+            job["status"] = f"backtesting {sym} ({i}/{n})…"
+
+        trades, overall, per_sym = bt_run(syms, years=years, progress=prog,
+                                          stop_pct=stop, target_pct=target)
+        if not overall.get("trades"):
+            job.update({"state": "done",
+                        "report": "No trades triggered on this group/period. "
+                                  "Try more years or another group."})
+            return
+
+        lines = [f"BACKTEST — {group.upper()} | {years}y | "
+                 f"stop {stop}% / target {target}%",
+                 "(mechanical rules only; AI news judgement is NOT backtestable)",
+                 "", "Per stock:"]
+        for sym, s in per_sym.items():
+            if s.get("error"):
+                lines.append(f"  {sym:<12} — {s['error']}")
+            elif s.get("trades"):
+                lines.append(
+                    f"  {sym:<12} {s['trades']:>3} trades | win {s['win_rate']:>5}% "
+                    f"| exp {s['expectancy']:+.2f}% | total {s['total_return_compounded']:+.1f}% "
+                    f"| maxDD {s['max_drawdown']:.1f}%")
+            else:
+                lines.append(f"  {sym:<12}   no trades")
+        lines += [
+            "", f"OVERALL — {overall['trades']} trades",
+            f"  Win rate         : {overall['win_rate']}%",
+            f"  Avg win / loss   : +{overall['avg_win']}% / {overall['avg_loss']}%",
+            f"  Expectancy/trade : {overall['expectancy']}%   <- the number that matters",
+            f"  Profit factor    : {overall['profit_factor']}",
+            f"  Max drawdown     : {overall['max_drawdown']}%",
+            f"  Avg holding      : {overall['avg_holding_days']} days",
+            "",
+            ("VERDICT: positive expectancy — worth paper trading forward."
+             if overall["expectancy"] > 0 else
+             "VERDICT: negative expectancy — these rules would have LOST money. "
+             "Do not trade live."),
+            "",
+            "Costs ~0.25% round trip included. Under ~20 trades is noise, not "
+            "evidence. Past results never guarantee future ones.",
+        ]
+        job.update({"state": "done", "report": "\n".join(lines)})
+    except Exception as e:
+        job.update({"state": "error", "error": f"backtest error: {e}"})
+
+
+@app.route("/api/action/backtest", methods=["POST"])
+def action_backtest():
+    if not _check_password():
+        return _deny()
+    body = request.json or {}
+    group = body.get("group", "multibagger")
+    try:
+        years = max(1, min(10, int(body.get("years", 3))))
+        stop = float(body.get("stop", 5))
+        target = float(body.get("target", 12))
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid years/stop/target"}), 400
+
+    job_id = uuid.uuid4().hex[:12]
+    _JOBS[job_id] = {"state": "running", "status": "starting backtest…",
+                     "t": time.time()}
+    threading.Thread(target=_run_backtest_job,
+                     args=(job_id, group, years, stop, target),
+                     daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
 @app.route("/api/action/result/<job_id>")
 def action_result(job_id: str):
     job = _JOBS.get(job_id)

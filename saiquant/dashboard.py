@@ -184,6 +184,18 @@ PAGE = r"""
       <button class="btn" onclick="runAnalyse()">Run AI analysis</button>
     </div>
     <div class="cmd-row">
+      <select id="btgrp">
+        <option value="multibagger">Multibagger</option>
+        <option value="bluechip">Bluechip</option>
+        <option value="midsmall">Mid/Small</option>
+        <option value="all">All (slow)</option>
+      </select>
+      <input id="btyears" type="number" value="3" min="1" max="10" style="width:70px" title="years">
+      <input id="btstop" type="number" value="5" step="0.5" style="width:70px" title="stop %">
+      <input id="bttarget" type="number" value="12" step="0.5" style="width:70px" title="target %">
+      <button class="btn" onclick="runBacktest()">Backtest history</button>
+    </div>
+    <div class="cmd-row">
       <input id="tsym" placeholder="SYMBOL" style="width:110px">
       <input id="tprice" placeholder="Price" type="number" step="0.05" style="width:90px">
       <input id="tqty" placeholder="Qty" type="number" style="width:70px">
@@ -217,6 +229,36 @@ async function getJSON(url){
   try{ return [r.ok, await r.json()]; }
   catch(e){ return [false, {error:'server busy'}]; }
 }
+function pollJob(job, label){
+  const btns=document.querySelectorAll('.btn'); let ticks=0;
+  const poll = setInterval(async ()=>{
+    ticks++;
+    const [rok, rd] = await getJSON('/api/action/result/'+job);
+    if(rd.state === 'running' || !rok){
+      out('⏳ ' + (rd.status || label) + ' (' + (ticks*5) + 's)', true);
+      if(ticks > 120){ clearInterval(poll);
+        out('Taking unusually long — refresh in a minute and try a smaller group.', false);
+        btns.forEach(b=>b.disabled=false); }
+      return;
+    }
+    clearInterval(poll);
+    if(rd.state === 'done') out(rd.report, true); else out(rd.error, false);
+    btns.forEach(b=>b.disabled=false);
+  }, 5000);
+}
+async function runBacktest(){
+  const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
+  out('Starting backtest…', true);
+  try{
+    const [ok,d] = await post('/api/action/backtest', {
+      group:document.getElementById('btgrp').value,
+      years:document.getElementById('btyears').value,
+      stop:document.getElementById('btstop').value,
+      target:document.getElementById('bttarget').value});
+    if(!ok){ out(d.error, false); btns.forEach(b=>b.disabled=false); return; }
+    pollJob(d.job_id, 'backtesting…');
+  }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
+}
 async function runAnalyse(){
   const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
   out('Starting analysis job…', true);
@@ -225,22 +267,7 @@ async function runAnalyse(){
       {group:document.getElementById('grp').value,
        intraday:document.getElementById('intra').checked});
     if(!ok){ out(d.error, false); btns.forEach(b=>b.disabled=false); return; }
-    const job = d.job_id; let ticks = 0;
-    const poll = setInterval(async ()=>{
-      ticks++;
-      const [rok, rd] = await getJSON('/api/action/result/'+job);
-      if(rd.state === 'running' || !rok){
-        out('⏳ ' + (rd.status || 'working…') + ' (' + (ticks*5) + 's)', true);
-        if(ticks > 120){ clearInterval(poll);
-          out('Taking unusually long — refresh the page in a minute; the result may appear under Latest AI analysis.', false);
-          btns.forEach(b=>b.disabled=false); }
-        return;
-      }
-      clearInterval(poll);
-      if(rd.state === 'done') out(rd.report, true);
-      else out(rd.error, false);
-      btns.forEach(b=>b.disabled=false);
-    }, 5000);
+    pollJob(d.job_id, 'analysing…');
   }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
 }
 async function trade(side){
