@@ -149,6 +149,57 @@ def _run_backtest_job(job_id: str, group: str, years: int,
         job.update({"state": "error", "error": f"backtest error: {e}"})
 
 
+def _run_auto_job(job_id: str) -> None:
+    from .autotrader import run_cycle
+    job = _JOBS[job_id]
+    try:
+        def prog(i, n, sym):
+            job["status"] = f"scanning {sym} ({i}/{n})…"
+        r = run_cycle(progress=prog)
+        lines = [f"AUTONOMOUS PAPER CYCLE — day {r['day']}",
+                 f"Equity ₹{r['equity']:,.0f} | realised ₹{r['realised']:,.0f} "
+                 f"| unrealised ₹{r['unrealised']:,.0f}",
+                 f"Open {r['open']} | Closed {r['closed']} | "
+                 f"Nifty {r['index_change']}%", ""]
+        if r["halted"]:
+            lines.append(f"⛔ TRADING HALTED: {r['halt_reason']}")
+        lines += (r["events"] or ["No actions today — patience is a position."])
+        lines += ["", "PAPER MODE ONLY — no real orders were or can be placed."]
+        job.update({"state": "done", "report": "\n".join(lines)})
+    except Exception as e:
+        job.update({"state": "error", "error": f"cycle error: {e}"})
+
+
+@app.route("/api/action/auto", methods=["POST"])
+def action_auto():
+    if not _check_password():
+        return _deny()
+    job_id = uuid.uuid4().hex[:12]
+    _JOBS[job_id] = {"state": "running", "status": "starting cycle…",
+                     "t": time.time()}
+    threading.Thread(target=_run_auto_job, args=(job_id,), daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/campaign")
+def api_campaign():
+    from .autotrader import CampaignStore
+    from .metrics import campaign_report
+    store = CampaignStore()
+    start = store.meta_get("start_date")
+    if not start:
+        return jsonify({"active": False})
+    capital = float(store.meta_get("capital", 100000))
+    rep = campaign_report(capital, store.closed_trades(),
+                          store.equity_series(), start,
+                          len(store.open_positions()))
+    from datetime import date as _d
+    rep["day"] = (_d.today() - _d.fromisoformat(start)).days + 1
+    rep["active"] = True
+    rep["positions"] = store.open_positions()
+    return jsonify(rep)
+
+
 @app.route("/api/action/backtest", methods=["POST"])
 def action_backtest():
     if not _check_password():

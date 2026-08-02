@@ -38,6 +38,14 @@ def main() -> None:
     ap.add_argument("--buy", nargs="+", metavar=("SYMBOL PRICE QTY [NOTE]"))
     ap.add_argument("--sell", nargs=2, metavar=("SYMBOL", "PRICE"))
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--auto", action="store_true",
+                    help="run one autonomous paper-trading cycle (PAPER ONLY)")
+    ap.add_argument("--campaign", action="store_true",
+                    help="campaign status: equity, positions, metrics")
+    ap.add_argument("--final-report", action="store_true",
+                    help="full 15-day performance report and verdict")
+    ap.add_argument("--decisions", type=int, default=0, metavar="N",
+                    help="show last N logged decisions with reasons")
     ap.add_argument("--backtest", action="store_true",
                     help="test the mechanical strategy on historical data")
     ap.add_argument("--years", type=int, default=3,
@@ -162,6 +170,119 @@ def main() -> None:
             colour = "green" if pnl >= 0 else "red"
             console.print(f"[{colour}]📝 PAPER SELL {symbol.upper()} @ ₹{price} "
                           f"→ P&L ₹{pnl:,.0f}[/{colour}]")
+        return
+
+    if args.auto:
+        from saiquant.autotrader import run_cycle
+        console.print("[bold cyan]🕉  SaiQuant AI — autonomous PAPER cycle "
+                      "(no real orders possible)[/bold cyan]")
+
+        def prog(i, n, sym):
+            if i % 10 == 0 or i == n:
+                console.print(f"  scanning {i}/{n}…", highlight=False)
+
+        r = run_cycle(progress=prog)
+        console.print(f"\n[bold]Day {r['day']}[/bold] | equity "
+                      f"₹{r['equity']:,.0f} | realised ₹{r['realised']:,.0f} | "
+                      f"unrealised ₹{r['unrealised']:,.0f}")
+        console.print(f"Open: {r['open']} | Closed: {r['closed']} | "
+                      f"Nifty today: {r['index_change']}%")
+        if r["halted"]:
+            console.print(f"[red]⛔ TRADING HALTED: {r['halt_reason']}[/red]")
+        for e in r["events"]:
+            console.print("  " + e)
+        if not r["events"]:
+            console.print("  [dim]No actions today — patience is a position.[/dim]")
+        return
+
+    if args.campaign or args.final_report:
+        from saiquant.autotrader import CampaignStore
+        from saiquant.metrics import campaign_report
+        store = CampaignStore()
+        start = store.meta_get("start_date")
+        if not start:
+            console.print("[yellow]No campaign yet. Start with: "
+                          "py run.py --auto[/yellow]")
+            return
+        capital = float(store.meta_get("capital", 100000))
+        closed = store.closed_trades()
+        rep = campaign_report(capital, closed, store.equity_series(), start,
+                              len(store.open_positions()))
+        day_no = (date.today() - date.fromisoformat(start)).days + 1
+
+        t = Table(title="Open positions")
+        for col in ("symbol", "group", "qty", "entry", "stop", "target",
+                    "conf", "opened"):
+            t.add_column(col)
+        for p in store.open_positions():
+            t.add_row(p["symbol"], p["group"], str(p["qty"]), str(p["entry"]),
+                      str(p["stop"]), str(p["target"]),
+                      f"{p['confidence']}/10", p["opened"])
+        console.print(t)
+
+        if closed:
+            t2 = Table(title="Closed trades")
+            for col in ("symbol", "qty", "entry", "exit", "P&L ₹",
+                        "exit reason", "closed"):
+                t2.add_column(col)
+            for c_ in closed[-25:]:
+                t2.add_row(c_["symbol"], str(c_["qty"]), str(c_["entry"]),
+                           str(c_["exit"]), f"{c_['pnl']:,.0f}",
+                           c_["exit_reason"], c_["closed"])
+            console.print(t2)
+
+        console.print(f"\n[bold]CAMPAIGN — day {day_no} of 15[/bold] "
+                      f"(started {start})")
+        console.print(f"  Capital          : ₹{capital:,.0f}")
+        console.print(f"  Equity now       : ₹{rep['final_equity']:,.0f} "
+                      f"({rep['return_pct']:+.2f}%)")
+        console.print(f"  Closed trades    : {rep.get('trades', 0)} | "
+                      f"win rate {rep.get('win_rate', 0)}%")
+        console.print(f"  Expectancy/trade : ₹{rep.get('expectancy', 0):,.0f}")
+        console.print(f"  Profit factor    : {rep.get('profit_factor')}")
+        console.print(f"  Max drawdown     : {rep['max_drawdown_pct']}%")
+        sharpe_txt = (rep['sharpe'] if rep['sharpe'] is not None
+                      else 'need >= 5 days of data')
+        console.print(f"  Sharpe (annlsd)  : {sharpe_txt}")
+        b = rep["benchmark"]
+        if b.get("available"):
+            console.print(f"  Nifty buy & hold : {b['return_pct']:+.2f}% "
+                          f"({b['from']} → {b['to']})")
+        for n in rep["notes"]:
+            console.print(f"  • {n}")
+
+        if args.final_report:
+            console.print("\n[bold]VERDICT[/bold]")
+            if day_no < 15:
+                console.print(f"  Campaign incomplete ({day_no}/15 days). "
+                              "Judge only at completion.")
+            trades = rep.get("trades", 0)
+            if trades < 15:
+                console.print("  ❌ NOT suitable for live trading: fewer than "
+                              "15 closed trades is statistical noise.")
+            elif rep.get("expectancy", 0) <= 0:
+                console.print("  ❌ NOT suitable: negative expectancy.")
+            elif b.get("available") and rep["return_pct"] <= b["return_pct"]:
+                console.print("  ⚠️  Underperformed simple buy-and-hold — the "
+                              "complexity did not earn its keep.")
+            else:
+                console.print("  ➡️  Continue PAPER testing for another cycle. "
+                              "A single positive fortnight is not an edge.")
+            console.print("  [dim]No live trading is enabled by this report. "
+                          "Capital protection first.[/dim]")
+        return
+
+    if args.decisions:
+        from saiquant.autotrader import CampaignStore
+        rows = CampaignStore().conn.execute(
+            "SELECT ts,symbol,action,detail FROM decisions "
+            "ORDER BY ts DESC LIMIT ?", (args.decisions,)).fetchall()
+        t = Table(title=f"Last {args.decisions} decisions (with reasons)")
+        for col in ("time", "symbol", "action", "reason"):
+            t.add_column(col, overflow="fold")
+        for r_ in rows:
+            t.add_row(r_[0][:16], r_[1], r_[2], r_[3])
+        console.print(t)
         return
 
     if args.backtest:

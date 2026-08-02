@@ -170,6 +170,10 @@ PAGE = r"""
   </table>
   {% else %}<div class="empty">No closed trades yet. The scorecard begins with your first exit.</div>{% endif %}
 
+  <h2>🤖 Autonomous campaign <span class="meta" id="campDay"></span></h2>
+  <div class="stats" id="campStats"><div class="stat"><div class="k">status</div>
+    <div class="v">loading…</div></div></div>
+
   <h2>⚡ Command center</h2>
   <div class="cmd">
     <input type="password" id="pw" placeholder="Action password">
@@ -182,6 +186,7 @@ PAGE = r"""
       </select>
       <label class="chk"><input type="checkbox" id="intra"> Intraday</label>
       <button class="btn" onclick="runAnalyse()">Run AI analysis</button>
+      <button class="btn" onclick="runAuto()">Run auto cycle</button>
     </div>
     <div class="cmd-row">
       <select id="btgrp">
@@ -259,6 +264,15 @@ async function runBacktest(){
     pollJob(d.job_id, 'backtesting…');
   }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
 }
+async function runAuto(){
+  const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
+  out('Starting autonomous paper cycle…', true);
+  try{
+    const [ok,d] = await post('/api/action/auto', {});
+    if(!ok){ out(d.error, false); btns.forEach(b=>b.disabled=false); return; }
+    pollJob(d.job_id, 'running cycle…');
+  }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
+}
 async function runAnalyse(){
   const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
   out('Starting analysis job…', true);
@@ -281,6 +295,25 @@ async function trade(side){
     else out(d.error, false);
   }catch(e){ out('Network error: '+e, false); }
 }
+fetch('/api/campaign').then(r=>r.json()).then(c=>{
+  const box = document.getElementById('campStats');
+  if(!c.active){ box.innerHTML='<div class="stat"><div class="k">campaign</div>'+
+    '<div class="v">not started — tap “Run auto cycle”</div></div>'; return; }
+  document.getElementById('campDay').textContent =
+    '(day '+c.day+' of 15 · paper only)';
+  const b = c.benchmark && c.benchmark.available ? c.benchmark.return_pct : null;
+  const cards = [
+    ['Equity', '₹'+Math.round(c.final_equity).toLocaleString('en-IN')],
+    ['Return', (c.return_pct>=0?'+':'')+c.return_pct+'%'],
+    ['Nifty B&H', b===null?'—':((b>=0?'+':'')+b+'%')],
+    ['Closed trades', c.trades||0],
+    ['Win rate', (c.win_rate||0)+'%'],
+    ['Max DD', c.max_drawdown_pct+'%'],
+    ['Sharpe', c.sharpe===null?'—':c.sharpe],
+    ['Open', c.open_positions]];
+  box.innerHTML = cards.map(([k,v])=>'<div class="stat"><div class="k">'+k+
+    '</div><div class="v">'+v+'</div></div>').join('');
+}).catch(()=>{});
 fetch('/api/overview').then(r=>r.json()).then(d=>{
   const s = document.getElementById('idxStrip');
   d.indices.forEach(i=>{
