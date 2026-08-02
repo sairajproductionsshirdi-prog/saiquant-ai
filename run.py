@@ -183,6 +183,8 @@ def main() -> None:
             if i % 10 == 0 or i == n:
                 console.print(f"  scanning {i}/{n}…", highlight=False)
 
+        from saiquant.autotrader import CampaignStore as _CS
+        console.print(f"[dim]storage: {_CS().backend()}[/dim]")
         r = run_cycle(progress=prog, use_ai=not args.no_ai)
         console.print(f"\n[bold]Day {r['day']}[/bold] | equity "
                       f"₹{r['equity']:,.0f} | realised ₹{r['realised']:,.0f} | "
@@ -236,6 +238,7 @@ def main() -> None:
 
         console.print(f"\n[bold]CAMPAIGN — day {day_no} of 15[/bold] "
                       f"(started {start})")
+        console.print(f"  Storage          : {store.backend()}")
         console.print(f"  Capital          : ₹{capital:,.0f}")
         console.print(f"  Equity now       : ₹{rep['final_equity']:,.0f} "
                       f"({rep['return_pct']:+.2f}%)")
@@ -277,9 +280,7 @@ def main() -> None:
 
     if args.decisions:
         from saiquant.autotrader import CampaignStore
-        rows = CampaignStore().conn.execute(
-            "SELECT ts,symbol,action,detail FROM decisions "
-            "ORDER BY ts DESC LIMIT ?", (args.decisions,)).fetchall()
+        rows = CampaignStore().recent_decisions(args.decisions)
         t = Table(title=f"Last {args.decisions} decisions (with reasons)")
         for col in ("time", "symbol", "action", "reason"):
             t.add_column(col, overflow="fold")

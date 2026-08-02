@@ -196,6 +196,7 @@ def api_campaign():
     from datetime import date as _d
     rep["day"] = (_d.today() - _d.fromisoformat(start)).days + 1
     rep["active"] = True
+    rep["storage"] = store.backend()
     rep["positions"] = store.open_positions()
     return jsonify(rep)
 

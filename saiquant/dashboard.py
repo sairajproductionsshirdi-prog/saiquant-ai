@@ -300,7 +300,7 @@ fetch('/api/campaign').then(r=>r.json()).then(c=>{
   if(!c.active){ box.innerHTML='<div class="stat"><div class="k">campaign</div>'+
     '<div class="v">not started — tap “Run auto cycle”</div></div>'; return; }
   document.getElementById('campDay').textContent =
-    '(day '+c.day+' of 15 · paper only)';
+    '(day '+c.day+' of 15 · paper only · '+(c.storage||'')+')';
   const b = c.benchmark && c.benchmark.available ? c.benchmark.return_pct : null;
   const cards = [
     ['Equity', '₹'+Math.round(c.final_equity).toLocaleString('en-IN')],

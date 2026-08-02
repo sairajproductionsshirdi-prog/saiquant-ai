@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 flask>=3.0.0
 gunicorn>=21.0.0
 kiteconnect>=5.0.1
+psycopg[binary]>=3.1

@@ -19,7 +19,6 @@ PAPER ONLY. There is no code path here that can place a real order.
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,72 +30,63 @@ from .ai_gate import review as ai_review
 from .riskengine import RiskConfig, RiskEngine, RiskState
 from .universe import groups, resolve
 
-DB = Path(__file__).resolve().parent.parent / "campaign.db"
 MAX_HOLDING_DAYS = 20
 COST_PCT_PER_SIDE = 0.125
 
 
-# ── storage ──────────────────────────────────────────────────────────────
+# ── storage (SQLite locally, Postgres when DATABASE_URL is set) ─────────
+from .db import Database, init_schema
+
+
 class CampaignStore:
-    def __init__(self):
-        self.conn = sqlite3.connect(DB)
-        c = self.conn
-        c.execute("""CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS positions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT, grp TEXT,
-            qty INTEGER, entry REAL, stop REAL, target REAL, highest REAL,
-            opened TEXT, reason TEXT, confidence INTEGER, status TEXT DEFAULT 'OPEN',
-            exit REAL, closed TEXT, exit_reason TEXT, pnl REAL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS decisions (
-            ts TEXT, symbol TEXT, action TEXT, detail TEXT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS equity (
-            day TEXT PRIMARY KEY, value REAL)""")
-        c.commit()
+    def __init__(self, db: Database | None = None):
+        self.db = db or Database()
+        init_schema(self.db)
+
+    def backend(self) -> str:
+        return self.db.backend_name()
 
     def meta_get(self, k, default=None):
-        r = self.conn.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+        r = self.db.fetchone("SELECT v FROM meta WHERE k=?", (k,))
         return r[0] if r else default
 
     def meta_set(self, k, v):
-        self.conn.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (k, str(v)))
-        self.conn.commit()
+        self.db.upsert("meta", "k", k, "v", str(v))
 
     def log(self, symbol, action, detail):
-        self.conn.execute("INSERT INTO decisions VALUES (?,?,?,?)",
-                          (datetime.now().isoformat(timespec="seconds"),
-                           symbol, action, detail))
-        self.conn.commit()
+        self.db.execute("INSERT INTO decisions VALUES (?,?,?,?)",
+                        (datetime.now().isoformat(timespec="seconds"),
+                         symbol, action, detail))
 
     def open_positions(self) -> list[dict]:
-        cur = self.conn.execute(
+        rows = self.db.fetchall(
             "SELECT id,symbol,grp,qty,entry,stop,target,highest,opened,reason,"
-            "confidence FROM positions WHERE status='OPEN'")
+            "confidence FROM positions WHERE status='OPEN' ORDER BY id")
         cols = ["id", "symbol", "group", "qty", "entry", "stop", "target",
                 "highest", "opened", "reason", "confidence"]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        return [dict(zip(cols, r)) for r in rows]
 
     def closed_trades(self) -> list[dict]:
-        cur = self.conn.execute(
+        rows = self.db.fetchall(
             "SELECT symbol,grp,qty,entry,exit,pnl,opened,closed,exit_reason,"
-            "reason,confidence FROM positions WHERE status='CLOSED' ORDER BY closed")
+            "reason,confidence FROM positions WHERE status='CLOSED' "
+            "ORDER BY closed")
         cols = ["symbol", "group", "qty", "entry", "exit", "pnl", "opened",
                 "closed", "exit_reason", "reason", "confidence"]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        return [dict(zip(cols, r)) for r in rows]
 
     def add_position(self, **kw):
-        self.conn.execute(
+        self.db.execute(
             "INSERT INTO positions (symbol,grp,qty,entry,stop,target,highest,"
             "opened,reason,confidence) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (kw["symbol"], kw["group"], kw["qty"], kw["entry"], kw["stop"],
              kw["target"], kw["entry"], date.today().isoformat(),
              kw["reason"], kw["confidence"]))
-        self.conn.commit()
 
     def update_position(self, pid, **kw):
         sets = ", ".join(f"{k}=?" for k in kw)
-        self.conn.execute(f"UPDATE positions SET {sets} WHERE id=?",
-                          (*kw.values(), pid))
-        self.conn.commit()
+        self.db.execute(f"UPDATE positions SET {sets} WHERE id=?",
+                        (*kw.values(), pid))
 
     def close_position(self, pid, exit_px, reason, pnl):
         self.update_position(pid, status="CLOSED", exit=exit_px,
@@ -104,13 +94,16 @@ class CampaignStore:
                              exit_reason=reason, pnl=pnl)
 
     def snapshot_equity(self, value: float):
-        self.conn.execute("INSERT OR REPLACE INTO equity VALUES (?,?)",
-                          (date.today().isoformat(), round(value, 2)))
-        self.conn.commit()
+        self.db.upsert("equity", "day", date.today().isoformat(),
+                       "value", round(value, 2))
 
     def equity_series(self) -> list[tuple[str, float]]:
-        return self.conn.execute(
-            "SELECT day, value FROM equity ORDER BY day").fetchall()
+        return self.db.fetchall("SELECT day, value FROM equity ORDER BY day")
+
+    def recent_decisions(self, n: int = 20) -> list[tuple]:
+        return self.db.fetchall(
+            "SELECT ts,symbol,action,detail FROM decisions "
+            "ORDER BY ts DESC LIMIT ?", (n,))
 
     def save_risk_state(self, st: RiskState):
         self.meta_set("risk_state", json.dumps(st.__dict__))
