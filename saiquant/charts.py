@@ -262,8 +262,12 @@ def manifest():
     return jsonify({
         "name": "SaiQuant AI",
         "short_name": "SaiQuant",
-        "start_url": "/charts",
+        "start_url": "/",
+        "scope": "/",
+        "id": "/",
         "display": "standalone",
+        "orientation": "portrait",
+        "description": "Personal paper-trading dashboard for NSE",
         "background_color": "#131A2E",
         "theme_color": "#131A2E",
         "icons": [

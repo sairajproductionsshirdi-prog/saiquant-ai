@@ -30,6 +30,14 @@ PAGE = r"""
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SaiQuant AI — Paper Trading</title>
+<meta name="theme-color" content="#131A2E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SaiQuant AI">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -295,6 +303,7 @@ async function trade(side){
     else out(d.error, false);
   }catch(e){ out('Network error: '+e, false); }
 }
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 fetch('/api/campaign').then(r=>r.json()).then(c=>{
   const box = document.getElementById('campStats');
   if(!c.active){ box.innerHTML='<div class="stat"><div class="k">campaign</div>'+
