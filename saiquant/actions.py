@@ -54,9 +54,10 @@ def _run_analysis_job(job_id: str, group: str, intraday: bool) -> None:
     job = _JOBS[job_id]
     try:
         syms = all_symbols() if group == "all" else groups()[group]
-        job["status"] = f"researching {len(syms)} stocks…"
+        def prog(i, n, sym):
+            job["status"] = f"researching {sym} ({i}/{n})…"
         text = build_snapshot(syms, interval=("15m" if intraday else "1d"),
-                              label=group.upper())
+                              label=group.upper(), progress=prog)
         job["status"] = "asking the AI analyst…"
         report = analyse(text, intraday=intraday)
         try:

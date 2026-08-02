@@ -34,12 +34,18 @@ def fetch_daily(symbol: str, period: str = "6mo", interval: str = "1d"):
 
 
 def build_snapshot(watchlist: list[str], fetch=fetch_daily,
-                   interval: str = "1d", label: str = "") -> str:
+                   interval: str = "1d", label: str = "",
+                   progress=None) -> str:
     lines = [HEADER.format(d=date.today().isoformat())]
     if label:
         lines.append(f"GROUP: {label} | CANDLES: "
                      f"{'15-minute (INTRADAY)' if interval != '1d' else 'daily (positional)'}\n")
-    for symbol in watchlist:
+    for i, symbol in enumerate(watchlist, 1):
+        if progress:
+            try:
+                progress(i, len(watchlist), symbol)
+            except Exception:
+                pass
         try:
             df = fetch(symbol, interval=interval)
             s = analyse_symbol(df)

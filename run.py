@@ -38,6 +38,14 @@ def main() -> None:
     ap.add_argument("--buy", nargs="+", metavar=("SYMBOL PRICE QTY [NOTE]"))
     ap.add_argument("--sell", nargs=2, metavar=("SYMBOL", "PRICE"))
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--backtest", action="store_true",
+                    help="test the mechanical strategy on historical data")
+    ap.add_argument("--years", type=int, default=3,
+                    help="years of history for --backtest (default 3)")
+    ap.add_argument("--stop", type=float, default=5.0,
+                    help="stop-loss %% for backtest (default 5)")
+    ap.add_argument("--target", type=float, default=12.0,
+                    help="target %% for backtest (default 12)")
     ap.add_argument("--kite-login", action="store_true",
                     help="daily Zerodha Kite login (live trading)")
     ap.add_argument("--live-buy", nargs=2, metavar=("SYMBOL", "QTY"),
@@ -154,6 +162,58 @@ def main() -> None:
             colour = "green" if pnl >= 0 else "red"
             console.print(f"[{colour}]📝 PAPER SELL {symbol.upper()} @ ₹{price} "
                           f"→ P&L ₹{pnl:,.0f}[/{colour}]")
+        return
+
+    if args.backtest:
+        from saiquant.backtest import run as bt_run
+        from saiquant.universe import groups, all_symbols
+        syms = all_symbols() if args.group == "all" else groups()[args.group]
+        console.print(f"[cyan]Backtesting {len(syms)} stocks over "
+                      f"{args.years}y (stop {args.stop}%, target {args.target}%)…[/cyan]")
+
+        def prog(i, n, sym):
+            console.print(f"  [{i}/{n}] {sym}", highlight=False)
+
+        trades, overall, per_sym = bt_run(
+            syms, years=args.years, progress=prog,
+            stop_pct=args.stop, target_pct=args.target)
+
+        t = Table(title=f"Per-stock results ({args.group}, {args.years}y)")
+        for col in ("symbol", "trades", "win %", "avg win %", "avg loss %",
+                    "expectancy %", "total %", "max DD %"):
+            t.add_column(col)
+        for sym, s in per_sym.items():
+            if s.get("error"):
+                t.add_row(sym, "—", "—", "—", "—", "—", "—", s["error"][:20])
+            elif s.get("trades"):
+                t.add_row(sym, str(s["trades"]), str(s["win_rate"]),
+                          str(s["avg_win"]), str(s["avg_loss"]),
+                          str(s["expectancy"]), str(s["total_return_compounded"]),
+                          str(s["max_drawdown"]))
+            else:
+                t.add_row(sym, "0", "—", "—", "—", "—", "—", "—")
+        console.print(t)
+
+        if overall.get("trades"):
+            console.print(f"\n[bold]OVERALL — {overall['trades']} trades[/bold]")
+            console.print(f"  Win rate         : {overall['win_rate']}%")
+            console.print(f"  Avg win / loss   : +{overall['avg_win']}% / "
+                          f"{overall['avg_loss']}%")
+            console.print(f"  Expectancy/trade : {overall['expectancy']}%  "
+                          f"(the number that matters)")
+            console.print(f"  Profit factor    : {overall['profit_factor']}")
+            console.print(f"  Max drawdown     : {overall['max_drawdown']}%")
+            console.print(f"  Avg holding      : {overall['avg_holding_days']} days")
+            verdict = ("[green]Positive expectancy — worth paper trading forward."
+                       "[/green]" if overall['expectancy'] > 0 else
+                       "[red]Negative expectancy — this ruleset would have lost "
+                       "money. Do NOT trade it live.[/red]")
+            console.print("\n" + verdict)
+            console.print("[dim]Costs included ~0.25% round trip. Past results "
+                          "never guarantee future ones.[/dim]")
+        else:
+            console.print("[yellow]No trades triggered — try more years or "
+                          "a different group.[/yellow]")
         return
 
     if args.report:

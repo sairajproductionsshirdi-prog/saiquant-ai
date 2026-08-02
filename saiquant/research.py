@@ -59,7 +59,7 @@ def fetch_news(symbol: str, company_hint: str = "", limit: int = 5) -> list[dict
     q = f"{company_hint or symbol} NSE stock when:7d".replace(" ", "+")
     url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        r = requests.get(url, headers=HEADERS, timeout=8)
         r.raise_for_status()
         root = ET.fromstring(r.content)
         items = []
@@ -139,20 +139,62 @@ def fetch_investor_action_news(symbol: str, limit: int = 3) -> list[dict]:
 
 
 def research_block(symbol: str) -> str:
-    """Human/AI-readable research section for one symbol."""
-    f = fetch_fundamentals(symbol)
-    poll = fetch_analyst_poll(symbol)
-    smart = fetch_smart_money(symbol)
+    """One-pass research: a single Yahoo session per stock (fast), with
+    graceful degradation — missing data becomes n/a, never a hang."""
+    info, holders_txt = {}, "n/a"
+    counts = "n/a"
+    try:
+        t = yf.Ticker(f"{symbol}.NS")
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
+        try:
+            rec = t.recommendations_summary
+            if rec is not None and len(rec):
+                row = rec.iloc[0]
+                counts = (f"strongBuy {row.get('strongBuy', 0)} / "
+                          f"buy {row.get('buy', 0)} / hold {row.get('hold', 0)} / "
+                          f"sell {row.get('sell', 0)} / "
+                          f"strongSell {row.get('strongSell', 0)}")
+        except Exception:
+            pass
+        try:
+            mh = t.major_holders
+            if mh is not None and len(mh):
+                try:
+                    d = {str(i): str(v) for i, v in
+                         zip(mh.index.astype(str), mh.iloc[:, 0].astype(str))}
+                except Exception:
+                    d = {str(r[1]): str(r[0]) for r in mh.itertuples(index=False)}
+                holders_txt = "; ".join(f"{k}: {v}" for k, v in list(d.items())[:3])
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    def g(key, default="n/a"):
+        v = info.get(key)
+        return v if v not in (None, "") else default
+
+    pe = info.get("trailingPE")
+    pe = round(pe, 1) if isinstance(pe, (int, float)) else "n/a"
+    tgt = {}
+    for k, key in (("lo", "targetLowPrice"), ("me", "targetMeanPrice"),
+                   ("hi", "targetHighPrice")):
+        v = info.get(key)
+        tgt[k] = round(v, 1) if isinstance(v, (int, float)) else "n/a"
+
     news = fetch_news(symbol)
     action = fetch_investor_action_news(symbol)
+
     lines = [
-        f"Fundamentals: sector {f['sector']} | mcap {f['market_cap']} | "
-        f"P/E {f['pe']} | 52w range ₹{f['week52_low']}–₹{f['week52_high']} | "
-        f"next earnings: {f['next_earnings']}",
-        f"Analyst poll: consensus '{poll['consensus']}' from {poll['analysts']} "
-        f"analysts | targets ₹{poll['target_low']} / ₹{poll['target_mean']} / "
-        f"₹{poll['target_high']} (low/mean/high) | ratings: {poll['counts']}",
-        f"Ownership: {smart['holders']}",
+        f"Fundamentals: sector {g('sector')} | mcap {_fmt_crores(info.get('marketCap'))} | "
+        f"P/E {pe} | 52w range ₹{g('fiftyTwoWeekLow')}–₹{g('fiftyTwoWeekHigh')}",
+        f"Analyst poll: consensus '{str(g('recommendationKey')).replace('_', ' ')}' "
+        f"from {g('numberOfAnalystOpinions')} analysts | targets ₹{tgt['lo']} / "
+        f"₹{tgt['me']} / ₹{tgt['hi']} (low/mean/high) | ratings: {counts}",
+        f"Ownership: {holders_txt}",
     ]
     if news:
         lines.append("Recent news (7 days):")
