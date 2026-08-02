@@ -83,6 +83,7 @@ CHARTS_PAGE = r"""
 <meta name="theme-color" content="#131A2E">
 <title>SaiQuant AI — Charts</title>
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/favicon.png">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -271,8 +272,14 @@ def manifest():
         "background_color": "#131A2E",
         "theme_color": "#131A2E",
         "icons": [
-            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
-            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icon-192.png", "sizes": "192x192",
+             "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-maskable-192.png", "sizes": "192x192",
+             "type": "image/png", "purpose": "maskable"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
         ],
     })
 

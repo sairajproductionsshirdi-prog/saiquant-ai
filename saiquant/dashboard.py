@@ -36,7 +36,7 @@ PAGE = r"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SaiQuant AI">
 <link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/static/icon-192.png">
+<link rel="icon" href="/static/favicon.png">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
