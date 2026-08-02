@@ -40,6 +40,10 @@ def main() -> None:
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--auto", action="store_true",
                     help="run one autonomous paper-trading cycle (PAPER ONLY)")
+    ap.add_argument("--live-paper", action="store_true",
+                    help="LIVE market paper trading loop (9:15-15:30, PAPER only)")
+    ap.add_argument("--poll", type=int, default=5,
+                    help="minutes between live-paper checks (default 5)")
     ap.add_argument("--no-ai", action="store_true",
                     help="run the auto cycle on mechanical rules only")
     ap.add_argument("--campaign", action="store_true",
@@ -172,6 +176,23 @@ def main() -> None:
             colour = "green" if pnl >= 0 else "red"
             console.print(f"[{colour}]📝 PAPER SELL {symbol.upper()} @ ₹{price} "
                           f"→ P&L ₹{pnl:,.0f}[/{colour}]")
+        return
+
+    if args.live_paper:
+        from saiquant.livepaper import run_live, in_market_hours
+        if not in_market_hours():
+            console.print("[yellow]Outside market hours (09:15–15:30 IST).[/yellow]")
+            console.print("Start it during market hours, or use "
+                          "[bold]py run.py --auto[/bold] for the daily cycle.")
+            return
+        console.print("[bold cyan]Press Ctrl+C anytime to stop.[/bold cyan]")
+        try:
+            run_live(poll_minutes=args.poll, use_ai=not args.no_ai,
+                     emit=lambda m: console.print(m, highlight=False))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopped by you. Open positions remain "
+                          "in the campaign — run --live-paper again or "
+                          "--auto this evening to manage them.[/yellow]")
         return
 
     if args.auto:
