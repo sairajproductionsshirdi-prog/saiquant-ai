@@ -20,6 +20,17 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def now_ist() -> datetime:
+    return datetime.now(IST)
+
+
+def today_ist() -> date:
+    return now_ist().date()
 from pathlib import Path
 
 import pandas as pd
@@ -55,7 +66,7 @@ class CampaignStore:
 
     def log(self, symbol, action, detail):
         self.db.execute("INSERT INTO decisions VALUES (?,?,?,?)",
-                        (datetime.now().isoformat(timespec="seconds"),
+                        (now_ist().isoformat(timespec="seconds"),
                          symbol, action, detail))
 
     def open_positions(self) -> list[dict]:
@@ -80,7 +91,7 @@ class CampaignStore:
             "INSERT INTO positions (symbol,grp,qty,entry,stop,target,highest,"
             "opened,reason,confidence) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (kw["symbol"], kw["group"], kw["qty"], kw["entry"], kw["stop"],
-             kw["target"], kw["entry"], date.today().isoformat(),
+             kw["target"], kw["entry"], today_ist().isoformat(),
              kw["reason"], kw["confidence"]))
 
     def update_position(self, pid, **kw):
@@ -90,11 +101,11 @@ class CampaignStore:
 
     def close_position(self, pid, exit_px, reason, pnl):
         self.update_position(pid, status="CLOSED", exit=exit_px,
-                             closed=date.today().isoformat(),
+                             closed=today_ist().isoformat(),
                              exit_reason=reason, pnl=pnl)
 
     def snapshot_equity(self, value: float):
-        self.db.upsert("equity", "day", date.today().isoformat(),
+        self.db.upsert("equity", "day", today_ist().isoformat(),
                        "value", round(value, 2))
 
     def equity_series(self) -> list[tuple[str, float]]:
@@ -190,7 +201,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
               ai_reviewer=ai_review, max_ai_reviews: int = 8) -> dict:
     store = CampaignStore()
     if not store.meta_get("start_date"):
-        store.meta_set("start_date", date.today().isoformat())
+        store.meta_set("start_date", today_ist().isoformat())
         store.meta_set("capital", capital)
     capital = float(store.meta_get("capital", capital))
 
@@ -228,7 +239,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
             events.append(f"↗ trailed {pos['symbol']} stop to ₹{new_stop}")
         store.update_position(pos["id"], highest=high, stop=new_stop)
 
-        held = (date.today() - date.fromisoformat(pos["opened"])).days
+        held = (today_ist() - date.fromisoformat(pos["opened"])).days
         exit_px, why = None, ""
         if price <= new_stop:
             exit_px, why = new_stop, "stop-loss"
@@ -345,7 +356,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
     store.snapshot_equity(equity)
     store.save_risk_state(risk.state)
 
-    day_no = (date.today() - date.fromisoformat(store.meta_get("start_date"))).days + 1
+    day_no = (today_ist() - date.fromisoformat(store.meta_get("start_date"))).days + 1
     return {"day": day_no, "equity": round(equity, 2),
             "realised": round(realised, 2), "unrealised": round(unreal, 2),
             "open": len(store.open_positions()),

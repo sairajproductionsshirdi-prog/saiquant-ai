@@ -15,7 +15,14 @@ Nothing here promises profit. It exists to bound losses.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def today_ist() -> date:
+    return datetime.now(IST).date()
 
 
 @dataclass
@@ -34,14 +41,14 @@ class RiskConfig:
 
 @dataclass
 class RiskState:
-    day: str = field(default_factory=lambda: date.today().isoformat())
+    day: str = field(default_factory=lambda: today_ist().isoformat())
     realised_today: float = 0.0
     halted: bool = False
     halt_reason: str = ""
     data_failures: int = 0
 
     def roll_day(self) -> None:
-        today = date.today().isoformat()
+        today = today_ist().isoformat()
         if self.day != today:
             self.day = today
             self.realised_today = 0.0

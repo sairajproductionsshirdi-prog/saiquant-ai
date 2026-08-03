@@ -7,7 +7,10 @@ Daily candles are reliable and free; that's what this workflow uses.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 import yfinance as yf
 
@@ -36,7 +39,7 @@ def fetch_daily(symbol: str, period: str = "6mo", interval: str = "1d"):
 def build_snapshot(watchlist: list[str], fetch=fetch_daily,
                    interval: str = "1d", label: str = "",
                    progress=None) -> str:
-    lines = [HEADER.format(d=date.today().isoformat())]
+    lines = [HEADER.format(d=datetime.now(IST).date().isoformat())]
     if label:
         lines.append(f"GROUP: {label} | CANDLES: "
                      f"{'15-minute (INTRADAY)' if interval != '1d' else 'daily (positional)'}\n")

@@ -10,6 +10,13 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def today_ist():
+    return datetime.now(IST).date()
 
 TRADING_DAYS = 252
 RISK_FREE_ANNUAL = 0.065  # ~6.5% Indian risk-free rate; adjust if you like
@@ -74,7 +81,7 @@ def benchmark_return(start_date: str, index_ticker: str = "^NSEI") -> dict:
     try:
         import yfinance as yf
         d0 = datetime.fromisoformat(start_date).date()
-        days = max(5, (date.today() - d0).days + 5)
+        days = max(5, (today_ist() - d0).days + 5)
         h = yf.Ticker(index_ticker).history(period=f"{days}d", interval="1d")
         if h is None or len(h) < 2:
             return {"available": False}

@@ -12,7 +12,10 @@ Server-side rendered; refresh the page to update.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 from pathlib import Path
 
 from flask import Flask, render_template_string
@@ -366,7 +369,7 @@ def home():
 
     return render_template_string(
         PAGE,
-        today=date.today().strftime("%d %b %Y"),
+        today=datetime.now(IST).strftime("%d %b %Y"),
         stats=s,
         open_pos=book.open_positions(),
         closed=book.closed_trades(),

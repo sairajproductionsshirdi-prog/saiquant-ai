@@ -34,6 +34,18 @@ from __future__ import annotations
 
 import time
 from datetime import date, datetime, time as dtime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def now_ist() -> datetime:
+    """Current time in IST — Render servers run UTC, so never use naive now()."""
+    return datetime.now(IST)
+
+
+def today_ist() -> date:
+    return now_ist().date()
 
 import yfinance as yf
 
@@ -74,7 +86,7 @@ def index_change_pct() -> float | None:
 
 
 def in_market_hours(now: datetime | None = None) -> bool:
-    t = (now or datetime.now()).time()
+    t = (now or now_ist()).time()
     return MARKET_OPEN <= t <= MARKET_CLOSE
 
 
@@ -197,12 +209,12 @@ def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
              ai_reviewer=ai_review, ai_budget_per_day: int = 8,
              price_fn=last_price, intraday_fn=intraday_history,
              index_fn=index_change_pct, emit=print,
-             sleeper=time.sleep, clock=datetime.now,
+             sleeper=time.sleep, clock=now_ist,
              max_iterations: int | None = None) -> dict:
     """The live loop. Returns a summary when the market closes."""
     store = CampaignStore()
     if not store.meta_get("start_date"):
-        store.meta_set("start_date", date.today().isoformat())
+        store.meta_set("start_date", today_ist().isoformat())
         store.meta_set("capital", capital)
     capital = float(store.meta_get("capital", capital))
 

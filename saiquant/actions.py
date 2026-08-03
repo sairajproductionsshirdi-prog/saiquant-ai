@@ -17,7 +17,14 @@ import os
 import threading
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def today_ist():
+    return datetime.now(IST).date()
 from pathlib import Path
 
 from flask import jsonify, request
@@ -62,7 +69,7 @@ def _run_analysis_job(job_id: str, group: str, intraday: bool) -> None:
         report = analyse(text, intraday=intraday)
         try:
             SNAP_DIR.mkdir(exist_ok=True)
-            (SNAP_DIR / f"analysis_{date.today().isoformat()}.txt").write_text(
+            (SNAP_DIR / f"analysis_{today_ist().isoformat()}.txt").write_text(
                 report, encoding="utf-8")
         except OSError:
             pass
@@ -201,9 +208,11 @@ def cron_tick():
     if request.args.get("token", "") != expected:
         return jsonify({"error": "bad token"}), 403
 
-    from .livepaper import (in_market_hours, run_live)
+    from .livepaper import in_market_hours, now_ist, run_live
+    ist = now_ist()
     if not in_market_hours():
-        return jsonify({"skipped": "outside market hours (09:15-15:30 IST)"})
+        return jsonify({"skipped": "outside market hours (09:15-15:30 IST)",
+                        "ist_time": ist.strftime("%Y-%m-%d %H:%M IST")})
 
     events: list[str] = []
     try:
@@ -211,7 +220,8 @@ def cron_tick():
                            sleeper=lambda s: None)
     except Exception as e:
         return jsonify({"error": f"tick failed: {e}"}), 500
-    return jsonify({"ok": True, "events": events, **summary})
+    return jsonify({"ok": True, "ist_time": ist.strftime("%Y-%m-%d %H:%M IST"),
+                    "events": events, **summary})
 
 
 @app.route("/api/campaign")
@@ -227,7 +237,7 @@ def api_campaign():
                           store.equity_series(), start,
                           len(store.open_positions()))
     from datetime import date as _d
-    rep["day"] = (_d.today() - _d.fromisoformat(start)).days + 1
+    rep["day"] = (today_ist() - _d.fromisoformat(start)).days + 1
     rep["active"] = True
     rep["storage"] = store.backend()
     rep["positions"] = store.open_positions()
