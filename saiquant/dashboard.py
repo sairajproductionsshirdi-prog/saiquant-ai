@@ -126,6 +126,21 @@ PAGE = r"""
   .btn:disabled{opacity:.5}
   .cmdout{font-family:'IBM Plex Mono',monospace;font-size:.78rem;
           white-space:pre-wrap;color:var(--muted);max-height:300px;overflow:auto}
+  .feed{display:flex;flex-direction:column;gap:8px;max-height:420px;
+        overflow-y:auto;padding-right:4px}
+  .ev{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+      padding:10px 12px;border-left:3px solid var(--muted)}
+  .ev.entry{border-left-color:var(--gain)}
+  .ev.exit{border-left-color:var(--marigold)}
+  .ev.reject{border-left-color:var(--loss)}
+  .ev.trail{border-left-color:var(--marigold)}
+  .ev .head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+            font-family:'IBM Plex Mono',monospace;font-size:.75rem}
+  .ev .sym{color:var(--ivory);font-weight:500}
+  .ev .tag{border:1px solid var(--line);border-radius:3px;padding:1px 6px;
+           font-size:.65rem;letter-spacing:.08em;color:var(--muted)}
+  .ev .when{color:var(--muted);margin-left:auto}
+  .ev .why{color:var(--muted);font-size:.8rem;margin-top:5px;line-height:1.45}
   footer{margin-top:38px;text-align:center;color:var(--muted);font-size:.8rem}
   footer b{color:var(--marigold);font-weight:500}
   @media (prefers-reduced-motion:no-preference){
@@ -184,6 +199,9 @@ PAGE = r"""
   <h2>🤖 Autonomous campaign <span class="meta" id="campDay"></span></h2>
   <div class="stats" id="campStats"><div class="stat"><div class="k">status</div>
     <div class="v">loading…</div></div></div>
+
+  <h2>🧠 What the bot is thinking <span class="meta" id="actCount"></span></h2>
+  <div class="feed" id="feed"><div class="empty">loading…</div></div>
 
   <h2>⚡ Command center</h2>
   <div class="cmd">
@@ -307,6 +325,33 @@ async function trade(side){
   }catch(e){ out('Network error: '+e, false); }
 }
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+
+function cls(a){
+  if(a==='ENTRY') return 'entry';
+  if(a==='EXIT') return 'exit';
+  if(a==='AI_REJECT'||a==='BLOCKED'||a==='AI_DOWNGRADE') return 'reject';
+  if(a==='TRAIL') return 'trail';
+  return '';
+}
+function loadFeed(){
+  fetch('/api/activity?n=40').then(r=>r.json()).then(d=>{
+    const box = document.getElementById('feed');
+    if(!d.events || !d.events.length){
+      box.innerHTML = '<div class="empty">No decisions logged yet today. '+
+        'The bot logs every entry, veto and exit here.</div>'; return; }
+    document.getElementById('actCount').textContent =
+      '(' + d.events.length + ' most recent)';
+    box.innerHTML = d.events.map(e =>
+      '<div class="ev '+cls(e.action)+'">'+
+        '<div class="head"><span class="sym">'+e.symbol+'</span>'+
+        '<span class="tag">'+e.action.replace('_',' ')+'</span>'+
+        '<span class="when">'+(e.ts||'').replace('T',' ').slice(5,16)+'</span></div>'+
+        '<div class="why">'+(e.detail||'').replace(/</g,'&lt;')+'</div>'+
+      '</div>').join('');
+  }).catch(()=>{});
+}
+loadFeed();
+setInterval(loadFeed, 60000);
 fetch('/api/campaign').then(r=>r.json()).then(c=>{
   const box = document.getElementById('campStats');
   if(!c.active){ box.innerHTML='<div class="stat"><div class="k">campaign</div>'+

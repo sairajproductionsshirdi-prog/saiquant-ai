@@ -111,6 +111,16 @@ class CampaignStore:
     def equity_series(self) -> list[tuple[str, float]]:
         return self.db.fetchall("SELECT day, value FROM equity ORDER BY day")
 
+    def reviewed_today(self) -> set[str]:
+        """Symbols already AI-reviewed today — avoids paying to re-analyse
+        the same candidate every 5 minutes with identical data."""
+        today = today_ist().isoformat()
+        rows = self.db.fetchall(
+            "SELECT symbol FROM decisions WHERE action IN "
+            "('AI_REJECT','AI_DOWNGRADE','ENTRY') AND ts LIKE ?",
+            (f"{today}%",))
+        return {r[0] for r in rows}
+
     def recent_decisions(self, n: int = 20) -> list[tuple]:
         return self.db.fetchall(
             "SELECT ts,symbol,action,detail FROM decisions "
