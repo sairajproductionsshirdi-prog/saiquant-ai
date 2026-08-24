@@ -208,10 +208,12 @@ def cron_tick():
     if request.args.get("token", "") != expected:
         return jsonify({"error": "bad token"}), 403
 
-    from .livepaper import in_market_hours, now_ist, run_live
+    from .livepaper import in_market_hours, is_trading_day, now_ist, run_live
     ist = now_ist()
     if not in_market_hours():
-        return jsonify({"skipped": "outside market hours (09:15-15:30 IST)",
+        trading, why = is_trading_day(ist.date())
+        reason = why if not trading else "outside market hours (09:15-15:30 IST)"
+        return jsonify({"skipped": reason,
                         "ist_time": ist.strftime("%Y-%m-%d %H:%M IST")})
 
     events: list[str] = []
