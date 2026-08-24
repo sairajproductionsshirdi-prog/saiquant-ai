@@ -6,7 +6,22 @@ mode: paper
 # KITE_API_KEY / KITE_API_SECRET in .env, and daily login.
 live_trading: false
 
-# Analysis style: positional (daily candles, swing) or intraday (15-min candles)
+# ─── Trading horizon ──────────────────────────────────────────────────────
+# positional: hold across days; exit on stop / target / EMA reversal / max days.
+#             This matches what the backtest measured (avg hold ~17 days).
+# intraday:   force square-off at 15:15 (MIS style) — a DIFFERENT strategy
+#             that the backtest never validated.
+horizon: positional
+
+# Candle interval for live signals:
+#   1d  = daily candles (matches the backtest)
+#   15m = intraday candles (far more signals, different behaviour)
+signal_interval: 1d
+
+# Max days a positional trade may be held before a time exit
+max_holding_days: 20
+
+# Legacy flag kept for --analyse; horizon above governs trading
 intraday: false
 
 paper_capital: 50000

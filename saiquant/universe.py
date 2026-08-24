@@ -36,3 +36,22 @@ def resolve(symbol: str) -> str:
     if symbol.startswith("^"):
         return symbol
     return f"{symbol}.NS"
+
+
+def horizon() -> str:
+    return str(load_cfg().get("horizon", "positional")).lower()
+
+
+def is_intraday() -> bool:
+    return horizon() == "intraday"
+
+
+def signal_interval() -> str:
+    return str(load_cfg().get("signal_interval", "1d"))
+
+
+def max_holding_days() -> int:
+    try:
+        return int(load_cfg().get("max_holding_days", 20))
+    except (TypeError, ValueError):
+        return 20

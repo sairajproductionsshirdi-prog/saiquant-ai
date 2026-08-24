@@ -53,7 +53,8 @@ from .ai_gate import review as ai_review
 from .autotrader import CampaignStore, evaluate
 from .indicators import ema
 from .riskengine import RiskConfig, RiskEngine
-from .universe import groups, resolve
+from .universe import (groups, is_intraday, max_holding_days,
+                        resolve, signal_interval)
 
 MARKET_OPEN = dtime(9, 15)
 SQUARE_OFF = dtime(15, 15)
@@ -61,12 +62,26 @@ MARKET_CLOSE = dtime(15, 30)
 COST_PCT_PER_SIDE = 0.125
 
 
-def intraday_history(symbol: str, period: str = "5d",
-                     interval: str = "15m"):
+def signal_history(symbol: str, period: str | None = None,
+                   interval: str | None = None):
+    """Candles used for signal generation.
+
+    Positional mode uses DAILY candles — the same data the backtest used,
+    so live behaviour matches what was validated. Intraday mode uses the
+    configured intraday interval instead.
+    """
+    interval = interval or signal_interval()
+    if period is None:
+        period = "1mo" if interval.endswith("m") else "6mo"
     df = yf.Ticker(resolve(symbol)).history(period=period, interval=interval)
-    if df is None or len(df) < 30:
-        raise ValueError("insufficient intraday data")
+    minimum = 30 if interval.endswith("m") else 60
+    if df is None or len(df) < minimum:
+        raise ValueError(f"insufficient {interval} data")
     return df
+
+
+# backwards-compatible alias
+intraday_history = signal_history
 
 
 def last_price(symbol: str) -> float:
@@ -114,18 +129,21 @@ def _monitor(store: CampaignStore, risk: RiskEngine, emit,
             store.update_position(pos["id"], highest=high)
 
         exit_px, why = None, ""
+        held_days = (date.today() - date.fromisoformat(pos["opened"])).days
         if force_square_off:
             exit_px, why = price, "square-off 15:15"
         elif price <= new_stop:
-            exit_px, why = new_stop, "stop-loss hit intraday"
+            exit_px, why = new_stop, "stop-loss hit"
         elif price >= pos["target"]:
-            exit_px, why = pos["target"], "target hit intraday"
+            exit_px, why = pos["target"], "target hit"
+        elif not is_intraday() and held_days >= max_holding_days():
+            exit_px, why = price, f"time exit ({held_days}d)"
         else:
             try:
                 df = intraday_fn(pos["symbol"])
                 e9, e21 = ema(df["Close"], 9), ema(df["Close"], 21)
                 if e9.iloc[-1] < e21.iloc[-1]:
-                    exit_px, why = price, "signal reversal (15m EMA)"
+                    exit_px, why = price, "signal reversal (EMA9 below EMA21)"
             except Exception:
                 pass
 
@@ -145,6 +163,7 @@ def _scan(store: CampaignStore, risk: RiskEngine, emit, intraday_fn,
           use_ai: bool, ai_reviewer, min_confidence: int,
           ai_budget: list[int]) -> None:
     gmap = groups()
+    reviewed = store.reviewed_today()
     for gname, syms in gmap.items():
         for sym in syms:
             if risk.state.halted:
@@ -164,11 +183,14 @@ def _scan(store: CampaignStore, risk: RiskEngine, emit, intraday_fn,
 
             ai_note = ""
             if use_ai:
+                if sym in reviewed:
+                    continue  # already judged today; don't pay to repeat it
                 if ai_budget[0] <= 0:
                     store.log(sym, "SKIP", "AI review budget exhausted today")
                     continue
                 verdict = ai_reviewer(sig, gname)
                 ai_budget[0] -= 1
+                reviewed.add(sym)
                 if not verdict["approved"]:
                     store.log(sym, "AI_REJECT",
                               f"{verdict['sentiment']} | {verdict['reason']}")
@@ -206,8 +228,8 @@ def _scan(store: CampaignStore, risk: RiskEngine, emit, intraday_fn,
 
 def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
              min_confidence: int = 7, use_ai: bool = True,
-             ai_reviewer=ai_review, ai_budget_per_day: int = 8,
-             price_fn=last_price, intraday_fn=intraday_history,
+             ai_reviewer=ai_review, ai_budget_per_day: int = 15,
+             price_fn=last_price, intraday_fn=signal_history,
              index_fn=index_change_pct, emit=print,
              sleeper=time.sleep, clock=now_ist,
              max_iterations: int | None = None) -> dict:
@@ -223,7 +245,11 @@ def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
     risk = RiskEngine(RiskConfig(capital=capital), state)
     budget = [ai_budget_per_day]
 
-    emit(f"🕉  LIVE-MARKET PAPER TRADING — polling every {poll_minutes} min")
+    mode = "INTRADAY (square-off 15:15)" if is_intraday() else \
+        f"POSITIONAL (hold up to {max_holding_days()} days)"
+    emit(f"🕉  LIVE-MARKET PAPER TRADING — {mode}")
+    emit(f"   signals from {signal_interval()} candles, polling every "
+         f"{poll_minutes} min")
     emit(f"   storage: {store.backend()}")
     emit("   PAPER ONLY: no broker connected, no real orders possible.")
     emit("   Data is ~15 min delayed; treat fills as approximations.\n")
@@ -244,7 +270,7 @@ def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
             emit(f"🔔 {t.strftime('%H:%M')} — market closed. Day complete.")
             break
         else:
-            square_off = t >= SQUARE_OFF
+            square_off = is_intraday() and t >= SQUARE_OFF
             emit(f"\n── {t.strftime('%H:%M')} ──")
             _monitor(store, risk, emit, price_fn, intraday_fn,
                      force_square_off=square_off)
@@ -253,6 +279,8 @@ def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
                 store.save_risk_state(risk.state)
                 if not store.open_positions():
                     break
+            elif is_intraday() is False and t >= SQUARE_OFF:
+                emit("🌙 After 15:15 — positional trades stay open overnight.")
             elif not risk.state.halted:
                 _scan(store, risk, emit, intraday_fn, use_ai, ai_reviewer,
                       min_confidence, budget)

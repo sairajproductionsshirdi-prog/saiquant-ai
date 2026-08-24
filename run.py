@@ -11,7 +11,10 @@ Daily workflow:
 """
 
 import argparse
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 from pathlib import Path
 
 import yaml
@@ -46,6 +49,8 @@ def main() -> None:
                     help="minutes between live-paper checks (default 5)")
     ap.add_argument("--no-ai", action="store_true",
                     help="run the auto cycle on mechanical rules only")
+    ap.add_argument("--reset-campaign", action="store_true",
+                    help="WIPE the campaign and start fresh (asks to confirm)")
     ap.add_argument("--campaign", action="store_true",
                     help="campaign status: equity, positions, metrics")
     ap.add_argument("--final-report", action="store_true",
@@ -178,6 +183,24 @@ def main() -> None:
                           f"→ P&L ₹{pnl:,.0f}[/{colour}]")
         return
 
+    if args.reset_campaign:
+        from saiquant.autotrader import CampaignStore, reset_campaign
+        store = CampaignStore()
+        start = store.meta_get("start_date")
+        closed = len(store.closed_trades())
+        open_n = len(store.open_positions())
+        console.print(f"[yellow]This will permanently delete the campaign "
+                      f"started {start}: {closed} closed trades, {open_n} open "
+                      f"positions, and all decision logs.[/yellow]")
+        console.print(f"[dim]Storage: {store.backend()}[/dim]")
+        if input('Type RESET to confirm: ').strip() != "RESET":
+            console.print("[green]Cancelled — nothing was deleted.[/green]")
+            return
+        console.print(reset_campaign(confirm=True))
+        console.print("[green]Fresh campaign will begin on the next cycle. "
+                      "Om Sai Ram.[/green]")
+        return
+
     if args.live_paper:
         from saiquant.livepaper import run_live, in_market_hours
         if not in_market_hours():
@@ -234,7 +257,7 @@ def main() -> None:
         closed = store.closed_trades()
         rep = campaign_report(capital, closed, store.equity_series(), start,
                               len(store.open_positions()))
-        day_no = (date.today() - date.fromisoformat(start)).days + 1
+        day_no = (datetime.now(IST).date() - date.fromisoformat(start)).days + 1
 
         t = Table(title="Open positions")
         for col in ("symbol", "group", "qty", "entry", "stop", "target",

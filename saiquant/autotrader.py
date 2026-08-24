@@ -139,6 +139,16 @@ class CampaignStore:
             return RiskState()
 
 
+def reset_campaign(confirm: bool = False) -> str:
+    """Wipe the campaign and start fresh. Requires explicit confirmation."""
+    if not confirm:
+        return "not confirmed"
+    store = CampaignStore()
+    for table in ("positions", "decisions", "equity", "meta"):
+        store.db.execute(f"DELETE FROM {table}")
+    return "campaign cleared"
+
+
 # ── market data ──────────────────────────────────────────────────────────
 def daily_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
     df = yf.Ticker(resolve(symbol)).history(period=period, interval="1d")
@@ -208,7 +218,7 @@ def evaluate(symbol: str, df: pd.DataFrame) -> dict | None:
 def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
               fetch=daily_history, index_fn=index_change_pct,
               progress=None, use_ai: bool = True,
-              ai_reviewer=ai_review, max_ai_reviews: int = 8) -> dict:
+              ai_reviewer=ai_review, max_ai_reviews: int = 15) -> dict:
     store = CampaignStore()
     if not store.meta_get("start_date"):
         store.meta_set("start_date", today_ist().isoformat())
@@ -221,6 +231,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
 
     events: list[str] = []
     ai_reviews_used = 0
+    reviewed = store.reviewed_today()
 
     # 1. volatility halt
     chg = index_fn()
@@ -306,6 +317,8 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
                 # ── AI six-lens review before any capital is committed ──
                 ai_note = ""
                 if use_ai:
+                    if sym in reviewed:
+                        continue  # already judged today; data hasn't changed
                     if ai_reviews_used >= max_ai_reviews:
                         store.log(sym, "SKIP",
                                   f"daily AI review budget ({max_ai_reviews}) "
@@ -316,6 +329,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
                                  f"{sym} (AI review)")
                     verdict = ai_reviewer(sig, gname)
                     ai_reviews_used += 1
+                    reviewed.add(sym)
                     if not verdict["approved"]:
                         store.log(sym, "AI_REJECT",
                                   f"sentiment {verdict['sentiment']} | "
@@ -331,6 +345,7 @@ def run_cycle(capital: float = 100_000.0, min_confidence: int = 7,
                                       f"{verdict['confidence']}/10")
                         continue
                     sig["confidence"] = verdict["confidence"]
+                    reviewed.add(sym)
                     ai_note = (f" | AI: {verdict['sentiment']}, "
                                f"{verdict['reason']} | risk: {verdict['risk_note']}")
 
