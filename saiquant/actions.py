@@ -224,6 +224,26 @@ def cron_tick():
                     "events": events, **summary})
 
 
+@app.route("/api/action/reset", methods=["POST"])
+def action_reset():
+    """Wipe the campaign. Needs the action password AND the typed word RESET."""
+    if not _check_password():
+        return _deny()
+    body = request.json or {}
+    if (body.get("confirm") or "").strip() != "RESET":
+        return jsonify({"error": 'Type RESET exactly to confirm.'}), 400
+
+    from .autotrader import CampaignStore, reset_campaign
+    store = CampaignStore()
+    before = {"closed": len(store.closed_trades()),
+              "open": len(store.open_positions()),
+              "started": store.meta_get("start_date")}
+    reset_campaign(confirm=True)
+    return jsonify({"ok": f"Campaign cleared (was: started {before['started']}, "
+                          f"{before['closed']} closed, {before['open']} open). "
+                          f"A fresh campaign begins on the next cycle."})
+
+
 @app.route("/api/activity")
 def api_activity():
     """Recent bot + AI decisions, for the live activity feed."""

@@ -123,6 +123,8 @@ PAGE = r"""
        padding:9px 16px;font-weight:600;cursor:pointer;font-size:.82rem;flex:0}
   .btn.buy{background:var(--gain);color:#fff}
   .btn.sell{background:var(--loss);color:#fff}
+  .btn.danger{background:transparent;color:var(--loss);
+              border:1px solid var(--loss)}
   .btn:disabled{opacity:.5}
   .cmdout{font-family:'IBM Plex Mono',monospace;font-size:.78rem;
           white-space:pre-wrap;color:var(--muted);max-height:300px;overflow:auto}
@@ -237,6 +239,11 @@ PAGE = r"""
       <button class="btn buy" onclick="trade('BUY')">Paper BUY</button>
       <button class="btn sell" onclick="trade('SELL')">Paper SELL</button>
     </div>
+    <div class="cmd-row" style="border-top:1px solid var(--line);padding-top:10px">
+      <input id="rstword" placeholder='Type RESET to wipe campaign' style="max-width:230px">
+      <button class="btn danger" onclick="resetCampaign()">Reset campaign</button>
+      <span class="chk">clears all trades, decisions &amp; equity — cannot be undone</span>
+    </div>
     <div id="cmdout" class="cmdout"></div>
   </div>
 
@@ -292,6 +299,17 @@ async function runBacktest(){
     if(!ok){ out(d.error, false); btns.forEach(b=>b.disabled=false); return; }
     pollJob(d.job_id, 'backtesting…');
   }catch(e){ out('Network error: '+e, false); btns.forEach(b=>b.disabled=false); }
+}
+async function resetCampaign(){
+  const word = document.getElementById('rstword').value.trim();
+  if(word !== 'RESET'){ out('Type RESET (capitals) in the box to confirm.', false); return; }
+  if(!confirm('Permanently delete this campaign? This cannot be undone.')) return;
+  try{
+    const [ok,d] = await post('/api/action/reset', {confirm: word});
+    if(ok){ out(d.ok, true); document.getElementById('rstword').value='';
+            setTimeout(()=>location.reload(), 2000); }
+    else out(d.error, false);
+  }catch(e){ out('Network error: '+e, false); }
 }
 async function runAuto(){
   const btns=document.querySelectorAll('.btn'); btns.forEach(b=>b.disabled=true);
