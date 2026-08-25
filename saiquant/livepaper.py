@@ -183,24 +183,36 @@ def _monitor(store: CampaignStore, risk: RiskEngine, emit,
 
 def _scan(store: CampaignStore, risk: RiskEngine, emit, intraday_fn,
           use_ai: bool, ai_reviewer, min_confidence: int,
-          ai_budget: list[int]) -> None:
+          ai_budget: list[int], stats: dict | None = None) -> dict:
+    """Scan the universe. Returns counters so the caller can log a heartbeat."""
+    stats = stats if stats is not None else {}
+    stats.setdefault("scanned", 0)
+    stats.setdefault("data_fail", 0)
+    stats.setdefault("signals", 0)
+    stats.setdefault("low_conf", 0)
     gmap = groups()
     reviewed = store.reviewed_today()
     for gname, syms in gmap.items():
         for sym in syms:
             if risk.state.halted:
-                return
+                return stats
             if any(p["symbol"] == sym for p in store.open_positions()):
                 continue
+            stats["scanned"] += 1
             try:
                 df = intraday_fn(sym)
                 risk.note_data_success()
             except Exception:
                 risk.note_data_failure()
+                stats["data_fail"] += 1
                 continue
 
             sig = evaluate(sym, df)
-            if not sig or sig["confidence"] < min_confidence:
+            if not sig:
+                continue
+            stats["signals"] += 1
+            if sig["confidence"] < min_confidence:
+                stats["low_conf"] += 1
                 continue
 
             ai_note = ""
@@ -246,6 +258,7 @@ def _scan(store: CampaignStore, risk: RiskEngine, emit, intraday_fn,
             emit(f"🟢 ENTERED {sym}: {qty} @ ₹{sig['price']} "
                  f"(stop ₹{sig['stop']}, target ₹{sig['target']}, "
                  f"conf {sig['confidence']}/10)")
+    return stats
 
 
 def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
@@ -304,8 +317,17 @@ def run_live(poll_minutes: int = 5, capital: float = 100_000.0,
             elif is_intraday() is False and t >= SQUARE_OFF:
                 emit("🌙 After 15:15 — positional trades stay open overnight.")
             elif not risk.state.halted:
-                _scan(store, risk, emit, intraday_fn, use_ai, ai_reviewer,
-                      min_confidence, budget)
+                st = _scan(store, risk, emit, intraday_fn, use_ai, ai_reviewer,
+                           min_confidence, budget)
+                held = len(store.open_positions())
+                summary = (f"scanned {st['scanned']} stocks | "
+                           f"{st['signals']} signals "
+                           f"({st['low_conf']} below confidence) | "
+                           f"{held} held | AI budget {budget[0]}")
+                if st["data_fail"]:
+                    summary += f" | {st['data_fail']} data failures"
+                store.log("SYSTEM", "HEARTBEAT", summary)
+                emit("   " + summary)
             else:
                 emit(f"⛔ halted: {risk.state.halt_reason} (monitoring only)")
 

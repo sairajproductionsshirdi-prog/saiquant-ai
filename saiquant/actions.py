@@ -254,10 +254,18 @@ def api_activity():
         n = max(1, min(100, int(request.args.get("n", 30))))
     except (TypeError, ValueError):
         n = 30
-    rows = CampaignStore().recent_decisions(n)
-    return jsonify({"events": [
-        {"ts": r[0], "symbol": r[1], "action": r[2], "detail": r[3]}
-        for r in rows]})
+    rows = CampaignStore().recent_decisions(n * 3)
+    events, heartbeats = [], 0
+    for r in rows:
+        if r[2] == "HEARTBEAT":
+            heartbeats += 1
+            if heartbeats > 3:      # keep only the 3 most recent heartbeats
+                continue
+        events.append({"ts": r[0], "symbol": r[1], "action": r[2],
+                       "detail": r[3]})
+        if len(events) >= n:
+            break
+    return jsonify({"events": events})
 
 
 @app.route("/api/campaign")

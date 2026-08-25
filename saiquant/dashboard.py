@@ -136,6 +136,7 @@ PAGE = r"""
   .ev.exit{border-left-color:var(--marigold)}
   .ev.reject{border-left-color:var(--loss)}
   .ev.trail{border-left-color:var(--marigold)}
+  .ev.beat{border-left-color:var(--line);opacity:.75}
   .ev .head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
             font-family:'IBM Plex Mono',monospace;font-size:.75rem}
   .ev .sym{color:var(--ivory);font-weight:500}
@@ -349,14 +350,15 @@ function cls(a){
   if(a==='EXIT') return 'exit';
   if(a==='AI_REJECT'||a==='BLOCKED'||a==='AI_DOWNGRADE') return 'reject';
   if(a==='TRAIL') return 'trail';
+  if(a==='HEARTBEAT') return 'beat';
   return '';
 }
 function loadFeed(){
   fetch('/api/activity?n=40').then(r=>r.json()).then(d=>{
     const box = document.getElementById('feed');
     if(!d.events || !d.events.length){
-      box.innerHTML = '<div class="empty">No decisions logged yet today. '+
-        'The bot logs every entry, veto and exit here.</div>'; return; }
+      box.innerHTML = '<div class="empty">Nothing logged yet. Once the market '+
+        'opens, each scan appears here — including quiet ones.</div>'; return; }
     document.getElementById('actCount').textContent =
       '(' + d.events.length + ' most recent)';
     box.innerHTML = d.events.map(e =>
